@@ -17,7 +17,7 @@ require.extensions['.json'] = function(module, filename) {
     }
     module.exports = temp;
 };
- 
+
 // extract titles from json object
 var titles = [];
 try {
@@ -37,7 +37,7 @@ var blocks = {};
 try {
     fs.readdirSync('blocks/').forEach(function(name) {
         if (name.match(/\.html$/g)) {
-            blocks[name.slice(0,-5)] = require('./blocks/'+ name);
+            blocks[name.slice(0,-5)] = require('./blocks/'+ name) || '<!---->';
         }
     });
 } catch (e) { /* ~~ Won't break anything ~~ */ }
@@ -49,16 +49,7 @@ try {
     console.log('ERROR: Could not find index.html or your file in this directory. Make sure to specify the base file in the command or create index.html');
     process.exit();
 }
- 
-// replacing "&&" tokens with their html blocks
-function replace_blocks(source, block_list) {
-    return source.replace(/&&\w+(\[\[\s*[\w\d]+\s*\]\])?/g, function(curr) {
-        var block = curr.replace(/&&|\[\[s*[\w\d]+\s*\]\]|\s/g, '');
-        var name = curr.replace(/&&\w+|\[|\]|\s/g, '');
-        return (block_list[block] && ('\n<!--START-'+block+'_'+name+'-->\n'+block_list[block].replace(/\[x\]/g, block+'_'+name)+'\n<!--END-'+block+'_'+name+'-->\n')) || curr;
-    });
-}
- 
+
 // making sure the build folder exists
 if (!fs.existsSync('build/')) {
     fs.mkdirSync('build');
@@ -71,46 +62,39 @@ titles.forEach(function(val) {
     while (temp.match(/&&/g) || temp.match(/@@/)) {
         if (counter > 12) {
             console.log('\n\nERROR:');
-            //console.log(('missing strings in default for '+val+':\n\t"'+(temp.match(/@@\.df(\.\w+)+/g)||[]).map(function(v){return v.replace(/@@\.df\./g,'');}).join('": "",\n\t"')+'": ""').replace(/"":\s""/g,''));
-            //console.log(('missing strings in '+val+':\n\t"'+(temp.match(new RegExp('@@\.'+val+'(\.\w+)+','g'))||[]).map(function(v){return v.replace(/@@\.\w+\./g,'');}).join('": "",\n\t"')+'": ""').replace(/"": ""/g,''));
-            //console.log('missing blocks in ' + val + ':\n' + (temp.match(/&&\w+(\[\[\s*\w+\s*\]\])?/g) || []).join('\n'));
-            //console.log('note that this can also be cause by a looping reference.');
-            //console.log(temp.match(/@@(\.\w+)+@?/g));
             break;
         }
         temp = temp.replace(/\[o\]/g, val);
-        temp = temp.replace(/&&\w+(\[\[\s*[\w\d]+\s*\]\])?/g, function(curr) {
-            var block = curr.replace(/&&|\[\[s*[\w\d]+\s*\]\]|\s/g, '');
-            var name = curr.replace(/&&\w+|\[|\]|\s/g, '');
-            return (blocks[block] && ('\n<!--START-'+block+'_'+name+'-->\n'+block_list[block].replace(/\[x\]/g, block+'_'+name)+'\n<!--END-'+block+'_'+name+'-->\n')) || curr;
-        });
-        temp = temp.replace(/@@(\.\w+)+({.+})?@/g, function(val) {
-            find(content, val.slice(3,-1).split('.'));
+        temp = temp.replace(/@@(\.\w+)+(\.{.+})?@/g, function(val) {
+            return find(content, val.slice(3,-1).split('.'));
             function find(obj, address) {
-                console.log(address)
-                if (typeof obj === 'string') {
-                    if (!obj) {
-                        console.log('could not find ' + val)
-                        return val;
-                    } else if (obj[0] === '{') {
-                        console.log('defaulted' + address[0].slice(1,-1))
-                        return address[0].slice(1,-1);
-                    } else {
-                        return obj;
-                    }
+                if (address[0][0] === '{' && !obj) {
+                    console.log('defaulted ' + val + ' to ' + val.slice(3,-1).match(/{.+}/g)[0].slice(1,-1))
+                    return val.slice(3,-1).match(/{.+}/g)[0].slice(1,-1);
+                } else if (typeof obj === 'string'){
+                    return obj;
+                } else if (!obj) {
+                    console.log('could not find ' + val)
+                    return val;
                 } else {
                     return find(obj[address.shift()], address);
                 }
             }
         });
+        temp = temp.replace(/&&\w+(\[\[\s*[\w\d]+\s*\]\])?/g, function(curr) {
+            var block = curr.replace(/&&|\[\[s*[\w\d]+\s*\]\]|\s/g, '');
+            var name = curr.replace(/&&\w+|\[|\]|\s/g, '');
+            return (blocks[block] && ('\n<!--START-'+block+'_'+name+'-->\n'+blocks[block].replace(/\[x\]/g, block+'_'+name)+'\n<!--END-'+block+'_'+name+'-->')) || curr;
+        });
         counter++;
     }
-    temp = temp.split('').map(function(val) {
+    console.log(temp);
+    /*temp = temp.split('').map(function(val) {
         var cc = val.charCodeAt(0);
         if (cc > 127) {
             return '&#' + cc + ';';
         }
         return val;
     }).join('');
-    fs.writeFileSync(`build/index_${val}.html`, temp);
+    fs.writeFileSync(`build/index_${val}.html`, temp);*/
 });
