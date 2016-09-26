@@ -1,11 +1,6 @@
 // node packages
 var fs = require('fs');
- 
-// define the way to parse html files
-require.extensions['.html'] = function(module, filename) {
-    module.exports = fs.readFileSync(filename, 'utf8');
-};
- 
+
 // define the way to parse json files
 require.extensions['.json'] = function(module, filename) {
     var temp;
@@ -18,20 +13,27 @@ require.extensions['.json'] = function(module, filename) {
     module.exports = temp;
 };
 
-// extract titles from json object
-var titles = [];
+// reading data from the json file
 try {
     var content = require('./' + (process.argv.slice(2)[0] || 'content.json'));
 } catch (e) {
     console.log('ERROR: Could not find content.json or your file in this directory. Make sure to specify the data file in the command or create content.json');
     process.exit();
 }
+
+// extract titles from json object
+var titles = [];
 for (var key in content) {
     if (key !=='df' && content.hasOwnProperty(key)) {
         titles.push(key);
     }
 }
- 
+
+// define the way to parse html files
+require.extensions['.html'] = function(module, filename) {
+    module.exports = fs.readFileSync(filename, 'utf8');
+};
+
 // storing all block snippets from the blocks/ directory
 var blocks = {};
 try {
@@ -41,7 +43,7 @@ try {
         }
     });
 } catch (e) { /* ~~ Won't break anything ~~ */ }
- 
+
 // fetching the template file
 try {
     var template = require('./' + (process.argv.slice(2)[1] || 'index.html'));
@@ -54,41 +56,61 @@ try {
 if (!fs.existsSync('build/')) {
     fs.mkdirSync('build');
 }
- 
+
 // replacing the tokens for each title and saving the file
 titles.forEach(function(val) {
+    console.log('\n+===================+');
+    console.log('\nStarting ' + val + ':\n')
     var temp = template.slice(0);
     var counter = 0;
+    var missing = {
+        blocks: {},
+        strings: {}
+    }
     while (temp.match(/&&/g) || temp.match(/@@/)) {
         if (counter > 12) {
-            console.log('\n\nERROR:');
             break;
         }
         temp = temp.replace(/\[o\]/g, val);
-        temp = temp.replace(/@@(\.\w+)+(\.{.+})?@/g, function(val) {
-            return find(content, val.slice(3,-1).split('.'));
+        temp = temp.replace(/@@((?:\.\w+)+)(?:\.{(.+)})?@/g, function(mtch, addr, deflt) {
+            return find(content, addr.slice(1).split('.'));
             function find(obj, address) {
-                if (address[0][0] === '{' && !obj) {
-                    console.log('defaulted ' + val + ' to ' + val.slice(3,-1).match(/{.+}/g)[0].slice(1,-1))
-                    return val.slice(3,-1).match(/{.+}/g)[0].slice(1,-1);
+                if (!obj) {
+                    if (deflt) {
+                        console.log('DEFAULTED    > ' + mtch + ' <    TO    > ' + deflt);
+                        return deflt;
+                    } else {
+                        missing.strings[mtch] = '';
+                        return mtch;
+                    }
                 } else if (typeof obj === 'string'){
                     return obj;
-                } else if (!obj) {
-                    console.log('could not find ' + val)
-                    return val;
                 } else {
                     return find(obj[address.shift()], address);
                 }
             }
         });
-        temp = temp.replace(/&&\w+(\[\[\s*[\w\d]+\s*\]\])?/g, function(curr) {
-            var block = curr.replace(/&&|\[\[s*[\w\d]+\s*\]\]|\s/g, '');
-            var name = curr.replace(/&&\w+|\[|\]|\s/g, '');
-            return (blocks[block] && ('\n<!--START-'+block+'_'+name+'-->\n'+blocks[block].replace(/\[x\]/g, block+'_'+name)+'\n<!--END-'+block+'_'+name+'-->')) || curr;
+        temp = temp.replace(/\{?&&([\w\d]+)\[\[(\s*[\w\d]+\s*)\]\]\}?/g, function(mtch, block, name) {
+            if (mtch[0] === '{' && mtch.substr(-1) === '}') {
+                return mtch;
+            }
+            if (!blocks[block]) {
+                missing.blocks[block] = '';
+                return mtch;
+            }
+            var blockname = block + '_' + name;
+            block = blocks[block].replace(/\[x\]/g, blockname);
+            return '\n<!--START-' + blockname + '-->\n' + block + '\n<!--END-' + blockname + '-->';
         });
         counter++;
     }
-    console.log(temp);
+    if (missing.strings) {
+        console.log('\nMISSING STRINGS FOR ' + val + ' :\n' + JSON.stringify(missing.strings).replace(/@@\.\w+\.|@/g, ''));
+    }
+    if (missing.blocks) {
+        console.log('\nMISSING BLOCKS FOR ' + val + ' :\n' + JSON.stringify(missing.blocks));
+    }
+    console.log('\n----------------------\n' + temp);
     /*temp = temp.split('').map(function(val) {
         var cc = val.charCodeAt(0);
         if (cc > 127) {
